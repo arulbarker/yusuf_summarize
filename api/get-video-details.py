@@ -92,8 +92,17 @@ def getVideoDetails(video_url):
         else:
             return {"error": "Invalid YouTube URL"}
 
-        # Get transcript - use correct method
-        transcript = YouTubeTranscriptApi.get_transcript(video_id, languages=['en'])
+        # Get transcript - use correct method with better error handling
+        try:
+            transcript = YouTubeTranscriptApi.get_transcript(video_id, languages=['en'])
+        except Exception as transcript_error:
+            # Try to get transcript in any available language
+            try:
+                transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
+                transcript = transcript_list.find_transcript(['en', 'id', 'es', 'fr', 'de', 'ja', 'ko', 'pt', 'ru', 'zh']).fetch()
+            except:
+                return {"error": "This video does not have subtitles/captions available. Please try another video with subtitles enabled."}
+
         grouped_transcript = groupTranscript(transcript, 30)
 
         formatted_transcript = []
