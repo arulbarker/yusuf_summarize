@@ -92,9 +92,8 @@ def getVideoDetails(video_url):
         else:
             return {"error": "Invalid YouTube URL"}
 
-        # Get transcript
-        fetched_transcript = YouTubeTranscriptApi().fetch(video_id, languages=['en'])
-        transcript = fetched_transcript.to_raw_data()
+        # Get transcript - use correct method
+        transcript = YouTubeTranscriptApi.get_transcript(video_id, languages=['en'])
         grouped_transcript = groupTranscript(transcript, 30)
 
         formatted_transcript = []
