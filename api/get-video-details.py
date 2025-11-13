@@ -92,35 +92,31 @@ def getVideoDetails(video_url):
         else:
             return {"error": "Invalid YouTube URL"}
 
-        # Get transcript - try multiple methods
+        # Get transcript - try multiple methods WITHOUT translation to avoid rate limits
         transcript = None
 
         try:
             # Method 1: Get transcript list
             transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
 
-            # Try to find English transcript first (manual or auto-generated)
+            # Try to find English transcript first
             try:
                 transcript = transcript_list.find_transcript(['en']).fetch()
             except:
-                # If no English, try other common languages
+                # If no English, get ANY available transcript (DeepSeek supports multiple languages)
                 try:
-                    transcript = transcript_list.find_transcript(['id', 'es', 'fr', 'de', 'pt', 'ja', 'ko']).fetch()
+                    # Try common languages first
+                    transcript = transcript_list.find_transcript(['id', 'es', 'fr', 'de', 'pt', 'ja', 'ko', 'zh-Hans', 'zh-Hant']).fetch()
                 except:
-                    # If still no luck, get the first available and translate to English
+                    # Get first available transcript without translation
                     try:
                         for available_transcript in transcript_list:
-                            if available_transcript.is_translatable:
-                                transcript = available_transcript.translate('en').fetch()
-                                break
-                            else:
-                                # Use whatever is available
-                                transcript = available_transcript.fetch()
-                                break
+                            transcript = available_transcript.fetch()
+                            break
                     except:
                         pass
 
-        except Exception as e:
+        except:
             # Fallback: try the simple method
             try:
                 transcript = YouTubeTranscriptApi.get_transcript(video_id)

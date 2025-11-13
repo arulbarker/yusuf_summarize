@@ -33,7 +33,7 @@ def getVideoDetails(video_url):
     try:
         video_id = video_url.split("v=")[1];
 
-        # Get transcript - try multiple methods
+        # Get transcript - try multiple methods WITHOUT translation to avoid rate limits
         transcript = None
 
         try:
@@ -44,19 +44,16 @@ def getVideoDetails(video_url):
             try:
                 transcript = transcript_list.find_transcript(['en']).fetch()
             except:
-                # If no English, try other common languages
+                # If no English, get ANY available transcript (DeepSeek supports multiple languages)
                 try:
-                    transcript = transcript_list.find_transcript(['id', 'es', 'fr', 'de', 'pt', 'ja', 'ko']).fetch()
+                    # Try common languages first
+                    transcript = transcript_list.find_transcript(['id', 'es', 'fr', 'de', 'pt', 'ja', 'ko', 'zh-Hans', 'zh-Hant']).fetch()
                 except:
-                    # Get first available and translate to English if possible
+                    # Get first available transcript without translation
                     try:
                         for available_transcript in transcript_list:
-                            if available_transcript.is_translatable:
-                                transcript = available_transcript.translate('en').fetch()
-                                break
-                            else:
-                                transcript = available_transcript.fetch()
-                                break
+                            transcript = available_transcript.fetch()
+                            break
                     except:
                         pass
 
