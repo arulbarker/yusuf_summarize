@@ -32,16 +32,43 @@ def getTitle(video_id):
 def getVideoDetails(video_url):
     try:
         video_id = video_url.split("v=")[1];
-        # Try to get transcript with better error handling
+
+        # Get transcript - try multiple methods
+        transcript = None
+
         try:
-            transcript = YouTubeTranscriptApi.get_transcript(video_id, languages=['en'])
-        except Exception as transcript_error:
-            # Try to get transcript in any available language
+            # Get transcript list
+            transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
+
+            # Try to find English transcript first
             try:
-                transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
-                transcript = transcript_list.find_transcript(['en', 'id', 'es', 'fr', 'de', 'ja', 'ko', 'pt', 'ru', 'zh']).fetch()
+                transcript = transcript_list.find_transcript(['en']).fetch()
             except:
-                return {"error": "This video does not have subtitles/captions available. Please try another video with subtitles enabled."}
+                # If no English, try other common languages
+                try:
+                    transcript = transcript_list.find_transcript(['id', 'es', 'fr', 'de', 'pt', 'ja', 'ko']).fetch()
+                except:
+                    # Get first available and translate to English if possible
+                    try:
+                        for available_transcript in transcript_list:
+                            if available_transcript.is_translatable:
+                                transcript = available_transcript.translate('en').fetch()
+                                break
+                            else:
+                                transcript = available_transcript.fetch()
+                                break
+                    except:
+                        pass
+
+        except:
+            # Fallback: try simple method
+            try:
+                transcript = YouTubeTranscriptApi.get_transcript(video_id)
+            except:
+                pass
+
+        if transcript is None:
+            return {"error": "This video does not have subtitles/captions available. Please try another video with subtitles enabled."}
 
         grouped_transcript = groupTranscript(transcript,30);
 
