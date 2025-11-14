@@ -92,39 +92,51 @@ def getVideoDetails(video_url):
         else:
             return {"error": "Invalid YouTube URL"}
 
-        # Get transcript - try multiple methods WITHOUT translation to avoid rate limits
+        # Get transcript with robust error handling
         transcript = None
+        error_messages = []
 
+        # Method 1: Try simple method first (most reliable)
         try:
-            # Method 1: Get transcript list
-            transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
+            transcript = YouTubeTranscriptApi.get_transcript(video_id)
+        except Exception as e1:
+            error_messages.append(f"Simple method failed: {type(e1).__name__}")
 
-            # Try to find English transcript first
+            # Method 2: Try to list and fetch manually
             try:
-                transcript = transcript_list.find_transcript(['en']).fetch()
-            except:
-                # If no English, get ANY available transcript (DeepSeek supports multiple languages)
+                transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
+
+                # Try English first
                 try:
-                    # Try common languages first
-                    transcript = transcript_list.find_transcript(['id', 'es', 'fr', 'de', 'pt', 'ja', 'ko', 'zh-Hans', 'zh-Hant']).fetch()
+                    trans_obj = transcript_list.find_transcript(['en'])
+                    transcript = trans_obj.fetch()
                 except:
-                    # Get first available transcript without translation
+                    # Try Indonesian and other common languages
                     try:
-                        for available_transcript in transcript_list:
-                            transcript = available_transcript.fetch()
-                            break
+                        trans_obj = transcript_list.find_transcript(['id', 'es', 'fr', 'de', 'pt', 'ja', 'ko'])
+                        transcript = trans_obj.fetch()
                     except:
-                        pass
+                        # Try ANY available transcript
+                        for trans_obj in transcript_list:
+                            try:
+                                transcript = trans_obj.fetch()
+                                break  # Success, exit loop
+                            except Exception as fetch_err:
+                                error_messages.append(f"Fetch {trans_obj.language_code} failed: {type(fetch_err).__name__}")
+                                continue
 
-        except:
-            # Fallback: try the simple method
-            try:
-                transcript = YouTubeTranscriptApi.get_transcript(video_id)
-            except:
-                pass
+            except Exception as e2:
+                error_messages.append(f"List method failed: {type(e2).__name__}")
 
-        if transcript is None:
-            return {"error": "This video does not have subtitles/captions available. Please try another video with subtitles enabled."}
+        # Check result
+        if transcript is None or len(transcript) == 0:
+            # Provide detailed error message
+            if "ParseError" in str(error_messages):
+                return {"error": "YouTube is temporarily blocking transcript requests. Please try again in a few minutes or try a different video."}
+            elif "NoTranscript" in str(error_messages):
+                return {"error": "This video does not have subtitles/captions available. Please try another video with subtitles enabled."}
+            else:
+                return {"error": f"Unable to retrieve video transcript. YouTube may be rate limiting requests. Please try again later."}
 
         grouped_transcript = groupTranscript(transcript, 30)
 
