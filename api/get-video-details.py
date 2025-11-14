@@ -1,6 +1,7 @@
 from http.server import BaseHTTPRequestHandler
 import json
 import os
+import time
 from youtube_transcript_api import YouTubeTranscriptApi
 from openai import OpenAI
 
@@ -92,51 +93,77 @@ def getVideoDetails(video_url):
         else:
             return {"error": "Invalid YouTube URL"}
 
-        # Get transcript with robust error handling
+        # Get transcript with robust error handling and retry mechanism
         transcript = None
         error_messages = []
+        max_retries = 2  # Reduced to avoid Vercel timeout
 
-        # Method 1: Try simple method first (most reliable)
-        try:
-            transcript = YouTubeTranscriptApi.get_transcript(video_id)
-        except Exception as e1:
-            error_messages.append(f"Simple method failed: {type(e1).__name__}")
-
-            # Method 2: Try to list and fetch manually
+        for attempt in range(max_retries):
             try:
-                transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
+                # Add small delay between retries
+                if attempt > 0:
+                    time.sleep(1.5)  # Keep delays short for Vercel
+                    error_messages.append(f"Retry {attempt + 1}/{max_retries}")
 
-                # Try English first
+                # Method 1: Try simple get_transcript (fastest)
                 try:
-                    trans_obj = transcript_list.find_transcript(['en'])
-                    transcript = trans_obj.fetch()
-                except:
-                    # Try Indonesian and other common languages
-                    try:
-                        trans_obj = transcript_list.find_transcript(['id', 'es', 'fr', 'de', 'pt', 'ja', 'ko'])
-                        transcript = trans_obj.fetch()
-                    except:
-                        # Try ANY available transcript
-                        for trans_obj in transcript_list:
-                            try:
-                                transcript = trans_obj.fetch()
-                                break  # Success, exit loop
-                            except Exception as fetch_err:
-                                error_messages.append(f"Fetch {trans_obj.language_code} failed: {type(fetch_err).__name__}")
-                                continue
+                    transcript = YouTubeTranscriptApi.get_transcript(video_id)
+                    if transcript and len(transcript) > 0:
+                        error_messages.append(f"Success via simple method")
+                        break  # Success!
+                except Exception as e1:
+                    error_messages.append(f"Simple: {type(e1).__name__}")
 
-            except Exception as e2:
-                error_messages.append(f"List method failed: {type(e2).__name__}")
+                # Small delay before next method
+                time.sleep(0.5)
 
-        # Check result
+                # Method 2: Try list_transcripts and get first available
+                try:
+                    transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
+
+                    # Try to get any available transcript
+                    available_transcripts = list(transcript_list)
+
+                    if not available_transcripts:
+                        error_messages.append("No transcripts available")
+                        continue
+
+                    # Try each available transcript (max 3 to avoid timeout)
+                    for idx, trans_obj in enumerate(available_transcripts[:3]):
+                        try:
+                            if idx > 0:
+                                time.sleep(0.3)  # Small delay between fetches
+                            transcript = trans_obj.fetch()
+                            if transcript and len(transcript) > 0:
+                                error_messages.append(f"Success: {trans_obj.language_code}")
+                                break  # Success!
+                        except Exception as fetch_err:
+                            error_messages.append(f"{trans_obj.language_code}: {type(fetch_err).__name__}")
+                            continue
+
+                    if transcript and len(transcript) > 0:
+                        break  # Success!
+
+                except Exception as e2:
+                    error_messages.append(f"List: {type(e2).__name__}")
+
+            except Exception as retry_err:
+                error_messages.append(f"Attempt {attempt + 1} failed: {type(retry_err).__name__}")
+
+            # If we have a transcript, break the retry loop
+            if transcript and len(transcript) > 0:
+                break
+
+        # Check result after all retries
         if transcript is None or len(transcript) == 0:
             # Provide detailed error message
-            if "ParseError" in str(error_messages):
-                return {"error": "YouTube is temporarily blocking transcript requests. Please try again in a few minutes or try a different video."}
-            elif "NoTranscript" in str(error_messages):
+            error_str = str(error_messages)
+            if "ParseError" in error_str:
+                return {"error": "YouTube is temporarily blocking transcript requests. This video may have restricted access. Please try: 1) Wait a few minutes and try again, 2) Try a different video, or 3) Check if the video has subtitles enabled."}
+            elif "NoTranscript" in error_str or "No transcripts available" in error_str:
                 return {"error": "This video does not have subtitles/captions available. Please try another video with subtitles enabled."}
             else:
-                return {"error": f"Unable to retrieve video transcript. YouTube may be rate limiting requests. Please try again later."}
+                return {"error": f"Unable to retrieve video transcript after {max_retries} attempts. YouTube may be rate limiting requests. Please try again later or use a different video."}
 
         grouped_transcript = groupTranscript(transcript, 30)
 
