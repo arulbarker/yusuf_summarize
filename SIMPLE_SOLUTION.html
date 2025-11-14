@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>YouTube Summarizer - Simple Version</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 20px;
+            padding: 40px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        }
+
+        h1 {
+            color: #667eea;
+            margin-bottom: 10px;
+            font-size: 2.5em;
+        }
+
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+        }
+
+        .method-selector {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+
+        .method-btn {
+            flex: 1;
+            padding: 15px;
+            border: 2px solid #667eea;
+            background: white;
+            color: #667eea;
+            border-radius: 10px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: 600;
+            transition: all 0.3s;
+        }
+
+        .method-btn.active {
+            background: #667eea;
+            color: white;
+        }
+
+        .method-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.3);
+        }
+
+        .input-section {
+            display: none;
+        }
+
+        .input-section.active {
+            display: block;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 8px;
+            color: #333;
+            font-weight: 600;
+        }
+
+        input[type="text"], textarea {
+            width: 100%;
+            padding: 15px;
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            font-size: 16px;
+            margin-bottom: 15px;
+            transition: border 0.3s;
+        }
+
+        textarea {
+            min-height: 200px;
+            font-family: monospace;
+            resize: vertical;
+        }
+
+        input:focus, textarea:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        button[type="submit"] {
+            width: 100%;
+            padding: 18px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 10px;
+            font-size: 18px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+
+        button[type="submit"]:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 25px rgba(102, 126, 234, 0.4);
+        }
+
+        button[type="submit"]:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+        }
+
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #667eea;
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 20px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .result {
+            margin-top: 30px;
+            padding: 25px;
+            background: #f8f9fa;
+            border-radius: 10px;
+            border-left: 5px solid #667eea;
+        }
+
+        .result h2 {
+            color: #333;
+            margin-bottom: 15px;
+        }
+
+        .result pre {
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            background: white;
+            padding: 15px;
+            border-radius: 8px;
+            font-size: 14px;
+            line-height: 1.6;
+        }
+
+        .error {
+            background: #fee;
+            border-left-color: #e53e3e;
+            color: #c53030;
+        }
+
+        .instructions {
+            background: #e6f2ff;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            border-left: 4px solid #667eea;
+        }
+
+        .instructions h3 {
+            color: #667eea;
+            margin-bottom: 10px;
+        }
+
+        .instructions ol {
+            margin-left: 20px;
+        }
+
+        .instructions li {
+            margin-bottom: 8px;
+        }
+
+        .hidden {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎥 YouTube Summarizer</h1>
+        <p class="subtitle">Get AI-powered summaries of YouTube videos</p>
+
+        <!-- Method Selector -->
+        <div class="method-selector">
+            <button class="method-btn active" onclick="selectMethod('auto')">
+                🤖 Auto Fetch (May Fail)
+            </button>
+            <button class="method-btn" onclick="selectMethod('manual')">
+                ✍️ Manual Paste (Always Works!)
+            </button>
+        </div>
+
+        <form id="summarizerForm" onsubmit="handleSubmit(event)">
+            <!-- Auto Method -->
+            <div id="auto-section" class="input-section active">
+                <label for="videoUrl">YouTube URL:</label>
+                <input
+                    type="text"
+                    id="videoUrl"
+                    placeholder="https://www.youtube.com/watch?v=..."
+                    required
+                />
+                <p style="color: #666; font-size: 14px; margin-bottom: 15px;">
+                    ⚠️ Note: Auto-fetch may be blocked by YouTube. If it fails, use Manual option.
+                </p>
+            </div>
+
+            <!-- Manual Method -->
+            <div id="manual-section" class="input-section">
+                <div class="instructions">
+                    <h3>📝 How to get transcript:</h3>
+                    <ol>
+                        <li>Open your YouTube video</li>
+                        <li>Click on "... More" below the video</li>
+                        <li>Click "Show transcript"</li>
+                        <li>Copy all the text</li>
+                        <li>Paste it below</li>
+                    </ol>
+                </div>
+
+                <label for="videoId">Video ID (optional):</label>
+                <input
+                    type="text"
+                    id="videoId"
+                    placeholder="e.g., dQw4w9WgXcQ"
+                />
+
+                <label for="manualTranscript">Paste Transcript Here:</label>
+                <textarea
+                    id="manualTranscript"
+                    placeholder="Paste the YouTube transcript here..."
+                ></textarea>
+            </div>
+
+            <button type="submit" id="submitBtn">
+                🚀 Generate Summary
+            </button>
+        </form>
+
+        <!-- Loading State -->
+        <div id="loading" class="loading hidden">
+            <div class="spinner"></div>
+            <p>Processing... This may take 10-30 seconds</p>
+        </div>
+
+        <!-- Result Display -->
+        <div id="result" class="hidden"></div>
+    </div>
+
+    <script>
+        const API_URL = 'YOUR_BACKEND_URL/api/get-video-details'; // Replace with your backend URL
+        let currentMethod = 'auto';
+
+        function selectMethod(method) {
+            currentMethod = method;
+
+            // Update button states
+            document.querySelectorAll('.method-btn').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            event.target.classList.add('active');
+
+            // Show/hide sections
+            document.getElementById('auto-section').classList.toggle('active', method === 'auto');
+            document.getElementById('manual-section').classList.toggle('active', method === 'manual');
+        }
+
+        async function handleSubmit(event) {
+            event.preventDefault();
+
+            const loading = document.getElementById('loading');
+            const result = document.getElementById('result');
+            const submitBtn = document.getElementById('submitBtn');
+
+            // Show loading
+            loading.classList.remove('hidden');
+            result.classList.add('hidden');
+            submitBtn.disabled = true;
+
+            try {
+                let requestBody;
+
+                if (currentMethod === 'auto') {
+                    // Auto fetch method
+                    const videoUrl = document.getElementById('videoUrl').value;
+                    requestBody = { video_url: videoUrl };
+
+                } else {
+                    // Manual paste method
+                    const videoId = document.getElementById('videoId').value || 'unknown';
+                    const manualTranscript = document.getElementById('manualTranscript').value;
+
+                    if (!manualTranscript.trim()) {
+                        throw new Error('Please paste a transcript');
+                    }
+
+                    requestBody = {
+                        videoId: videoId,
+                        manualTranscript: manualTranscript
+                    };
+                }
+
+                // Call backend API
+                const response = await fetch(API_URL, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(requestBody)
+                });
+
+                const data = await response.json();
+
+                if (data.error) {
+                    throw new Error(data.error);
+                }
+
+                // Display result
+                result.innerHTML = `
+                    <h2>✅ Summary Generated!</h2>
+                    <h3>Title: ${data.title || 'YouTube Video'}</h3>
+                    <div style="margin-top: 20px;">
+                        <h4>📝 Summary:</h4>
+                        <pre>${data.summary}</pre>
+                    </div>
+                `;
+                result.classList.remove('hidden', 'error');
+
+            } catch (error) {
+                // Display error
+                result.innerHTML = `
+                    <h2>❌ Error</h2>
+                    <pre>${error.message}</pre>
+                `;
+                result.classList.remove('hidden');
+                result.classList.add('error');
+            } finally {
+                loading.classList.add('hidden');
+                submitBtn.disabled = false;
+            }
+        }
+    </script>
+</body>
+</html>

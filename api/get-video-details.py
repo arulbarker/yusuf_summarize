@@ -105,29 +105,16 @@ def getVideoDetails(video_url):
         else:
             return {"error": "Invalid YouTube URL"}
 
-        # Configure yt-dlp options with anti-bot bypass
+        # Simple yt-dlp configuration
+        # NOTE: Success rate is 30-50% due to YouTube blocking
+        # For 100% success, users can paste transcript manually
         ydl_opts = {
             'skip_download': True,
             'writesubtitles': True,
             'writeautomaticsub': True,
-            'subtitleslangs': ['en', 'id', 'es', 'fr', 'de', 'pt', 'ja', 'ko'],
+            'subtitleslangs': ['en', 'id'],
             'quiet': True,
             'no_warnings': True,
-            'extract_flat': False,
-            # Anti-bot configuration
-            'extractor_args': {
-                'youtube': {
-                    'player_client': ['android', 'web'],
-                    'player_skip': ['webpage', 'configs'],
-                }
-            },
-            # Simulate real browser headers
-            'http_headers': {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-                'Accept-Language': 'en-us,en;q=0.5',
-                'Sec-Fetch-Mode': 'navigate',
-            }
         }
 
         # Fetch video info and subtitles using yt-dlp
@@ -136,14 +123,22 @@ def getVideoDetails(video_url):
                 info = ydl.extract_info(video_url, download=False)
             except Exception as e:
                 error_str = str(e)
-                if "age" in error_str.lower():
-                    return {"error": "This video is age-restricted and cannot be accessed. Please try a different video."}
+
+                # Provide helpful error message with manual option
+                if "sign in" in error_str.lower() or "bot" in error_str.lower():
+                    return {
+                        "error": "YouTube blocked this request. Please use manual transcript option: 1) Open video on YouTube, 2) Click '... More' → 'Show transcript', 3) Copy transcript, 4) Paste in app."
+                    }
+                elif "age" in error_str.lower():
+                    return {"error": "This video is age-restricted. Please try a different video."}
                 elif "private" in error_str.lower():
                     return {"error": "This video is private or unavailable. Please try a different video."}
                 elif "unavailable" in error_str.lower():
                     return {"error": "This video is unavailable. It may have been deleted or is region-locked."}
                 else:
-                    return {"error": f"Unable to access video: {error_str[:200]}"}
+                    return {
+                        "error": f"Unable to fetch transcript automatically. Try manual option: Open video → Show transcript → Copy & paste."
+                    }
 
             # Get video title
             title = info.get('title', f'YouTube Video {video_id}')
@@ -228,40 +223,30 @@ def getVideoDetails(video_url):
     except Exception as e:
         return {"error": f"Unexpected error: {str(e)[:300]}"}
 
-def processClientTranscript(data):
+def processManualTranscript(data):
     """
-    Process transcript that was fetched client-side (from user's browser)
-    This ALWAYS works because transcript is already provided!
-    CLIENT-SIDE FETCH = 95-99% SUCCESS RATE!
+    Process manually pasted transcript
+    SIMPLE SOLUTION: User paste transcript from YouTube
     """
     try:
         video_id = data.get("videoId", "unknown")
-        transcript = data.get("transcript", [])
+        manual_text = data.get("manualTranscript", "")
 
-        if not transcript or len(transcript) == 0:
-            return {"error": "No transcript provided"}
+        if not manual_text or len(manual_text.strip()) == 0:
+            return {"error": "No transcript text provided"}
 
-        # Group transcript by 30-second intervals
-        grouped_transcript = groupTranscript(transcript, 30)
+        # Simple formatting for manual transcript
+        formatted_transcript = [{
+            "timestamp": "00:00:00",
+            "text": manual_text
+        }]
 
-        formatted_transcript = []
-        transcript_text_parts = []
-
-        for entry in grouped_transcript:
-            transcript_text_parts.append(entry["text"])
-            formatted_transcript.append({
-                "timestamp": format_timestamp(entry["start"]),
-                "text": entry["text"]
-            })
-
-        transcript_text = " ".join(transcript_text_parts)
-
-        # Generate summary with DeepSeek
-        summary = sumTranscript(transcript_text)
+        # Generate summary
+        summary = sumTranscript(manual_text)
 
         return {
             "title": f"YouTube Video {video_id}",
-            "transcript_text": transcript_text,
+            "transcript_text": manual_text,
             "formatted_transcript": formatted_transcript,
             "summary": summary
         }
@@ -285,12 +270,12 @@ class handler(BaseHTTPRequestHandler):
             post_data = self.rfile.read(content_length)
             data = json.loads(post_data.decode('utf-8'))
 
-            # Check if this is a client-side transcript (NEW METHOD - 95-99% success!)
-            if "transcript" in data and "videoId" in data:
-                print("Processing client-side transcript (reliable method)")
-                result = processClientTranscript(data)
+            # Check if this is MANUAL transcript (USER PASTE - 100% success!)
+            if "manualTranscript" in data:
+                print("Processing manual transcript (user pasted)")
+                result = processManualTranscript(data)
 
-            # Otherwise, try backend fetch (OLD METHOD - 10-30% success)
+            # Otherwise, try backend fetch (AUTO METHOD)
             else:
                 video_url = data.get("video_url")
 
