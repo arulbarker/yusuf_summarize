@@ -1,8 +1,8 @@
 from http.server import BaseHTTPRequestHandler
 import json
 import os
-import time
-from youtube_transcript_api import YouTubeTranscriptApi
+import yt_dlp
+import urllib.request
 from openai import OpenAI
 
 # Initialize DeepSeek client
@@ -105,78 +105,93 @@ def getVideoDetails(video_url):
         else:
             return {"error": "Invalid YouTube URL"}
 
-        # Get transcript with robust error handling and retry mechanism
-        transcript = None
-        error_messages = []
-        max_retries = 2  # Reduced to avoid Vercel timeout
+        # Configure yt-dlp options for subtitle extraction
+        ydl_opts = {
+            'skip_download': True,
+            'writesubtitles': True,
+            'writeautomaticsub': True,
+            'subtitleslangs': ['en', 'id', 'es', 'fr', 'de', 'pt', 'ja', 'ko'],
+            'quiet': True,
+            'no_warnings': True,
+            'extract_flat': False,
+        }
 
-        for attempt in range(max_retries):
+        # Fetch video info and subtitles using yt-dlp
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             try:
-                # Add small delay between retries
-                if attempt > 0:
-                    time.sleep(1.5)  # Keep delays short for Vercel
-                    error_messages.append(f"Retry {attempt + 1}/{max_retries}")
+                info = ydl.extract_info(video_url, download=False)
+            except Exception as e:
+                error_str = str(e)
+                if "age" in error_str.lower():
+                    return {"error": "This video is age-restricted and cannot be accessed. Please try a different video."}
+                elif "private" in error_str.lower():
+                    return {"error": "This video is private or unavailable. Please try a different video."}
+                elif "unavailable" in error_str.lower():
+                    return {"error": "This video is unavailable. It may have been deleted or is region-locked."}
+                else:
+                    return {"error": f"Unable to access video: {error_str[:200]}"}
 
-                # Method 1: Try simple get_transcript (fastest)
-                try:
-                    transcript = YouTubeTranscriptApi.get_transcript(video_id)
-                    if transcript and len(transcript) > 0:
-                        error_messages.append(f"Success via simple method")
-                        break  # Success!
-                except Exception as e1:
-                    error_messages.append(f"Simple: {type(e1).__name__}")
+            # Get video title
+            title = info.get('title', f'YouTube Video {video_id}')
 
-                # Small delay before next method
-                time.sleep(0.5)
+            # Get subtitles
+            subtitles = info.get('subtitles', {})
+            automatic_captions = info.get('automatic_captions', {})
+            all_subs = {**automatic_captions, **subtitles}
 
-                # Method 2: Try list_transcripts and get first available
-                try:
-                    transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
-
-                    # Try to get any available transcript
-                    available_transcripts = list(transcript_list)
-
-                    if not available_transcripts:
-                        error_messages.append("No transcripts available")
-                        continue
-
-                    # Try each available transcript (max 3 to avoid timeout)
-                    for idx, trans_obj in enumerate(available_transcripts[:3]):
-                        try:
-                            if idx > 0:
-                                time.sleep(0.3)  # Small delay between fetches
-                            transcript = trans_obj.fetch()
-                            if transcript and len(transcript) > 0:
-                                error_messages.append(f"Success: {trans_obj.language_code}")
-                                break  # Success!
-                        except Exception as fetch_err:
-                            error_messages.append(f"{trans_obj.language_code}: {type(fetch_err).__name__}")
-                            continue
-
-                    if transcript and len(transcript) > 0:
-                        break  # Success!
-
-                except Exception as e2:
-                    error_messages.append(f"List: {type(e2).__name__}")
-
-            except Exception as retry_err:
-                error_messages.append(f"Attempt {attempt + 1} failed: {type(retry_err).__name__}")
-
-            # If we have a transcript, break the retry loop
-            if transcript and len(transcript) > 0:
-                break
-
-        # Check result after all retries
-        if transcript is None or len(transcript) == 0:
-            # Provide detailed error message
-            error_str = str(error_messages)
-            if "ParseError" in error_str:
-                return {"error": "YouTube is temporarily blocking transcript requests. This video may have restricted access. Please try: 1) Wait a few minutes and try again, 2) Try a different video, or 3) Check if the video has subtitles enabled."}
-            elif "NoTranscript" in error_str or "No transcripts available" in error_str:
+            if not all_subs:
                 return {"error": "This video does not have subtitles/captions available. Please try another video with subtitles enabled."}
-            else:
-                return {"error": f"Unable to retrieve video transcript after {max_retries} attempts. YouTube may be rate limiting requests. Please try again later or use a different video."}
 
+            # Find best available subtitle language
+            target_lang = None
+            preferred_langs = ['en', 'id', 'es', 'fr', 'de', 'pt', 'ja', 'ko']
+
+            for lang in preferred_langs:
+                if lang in all_subs:
+                    target_lang = lang
+                    break
+
+            if not target_lang:
+                # Use first available language
+                target_lang = list(all_subs.keys())[0]
+
+            subtitle_formats = all_subs[target_lang]
+
+            # Find json3 format (best for parsing)
+            json3_url = None
+            for fmt in subtitle_formats:
+                if fmt.get('ext') == 'json3':
+                    json3_url = fmt.get('url')
+                    break
+
+            if not json3_url:
+                return {"error": "Unable to extract subtitle data. Please try a different video."}
+
+            # Download and parse subtitle data
+            try:
+                with urllib.request.urlopen(json3_url) as response:
+                    subtitle_data = json.loads(response.read().decode('utf-8'))
+            except Exception as e:
+                return {"error": f"Failed to download subtitles: {str(e)[:200]}"}
+
+            # Parse events (subtitle entries)
+            events = subtitle_data.get('events', [])
+            transcript = []
+
+            for event in events:
+                if 'segs' in event:
+                    start = event.get('tStartMs', 0) / 1000.0
+                    text = ''.join([seg.get('utf8', '') for seg in event['segs']])
+                    if text.strip():
+                        transcript.append({
+                            'start': start,
+                            'text': text.strip()
+                        })
+
+            if not transcript or len(transcript) == 0:
+                return {"error": "No subtitle content found. Please try a different video."}
+
+        # Group transcript by 30-second intervals
         grouped_transcript = groupTranscript(transcript, 30)
 
         formatted_transcript = []
@@ -191,16 +206,13 @@ def getVideoDetails(video_url):
 
         transcript_text = " ".join(transcript_text_parts)
 
-        # Get video title from first transcript entry or use a default
-        title = f"YouTube Video {video_id}"
-
         return {
             "title": title,
             "transcript_text": transcript_text,
             "formatted_transcript": formatted_transcript
         }
     except Exception as e:
-        return {"error": str(e)}
+        return {"error": f"Unexpected error: {str(e)[:300]}"}
 
 class handler(BaseHTTPRequestHandler):
     def do_GET(self):
@@ -209,7 +221,7 @@ class handler(BaseHTTPRequestHandler):
         self.send_header('Access-Control-Allow-Origin', '*')
         self.end_headers()
 
-        response = {"message": "YouTube Summary API is working!"}
+        response = {"message": "YouTube Summary API is working with yt-dlp!"}
         self.wfile.write(json.dumps(response).encode())
         return
 
