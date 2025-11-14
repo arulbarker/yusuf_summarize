@@ -6,8 +6,14 @@ from youtube_transcript_api import YouTubeTranscriptApi
 from openai import OpenAI
 
 # Initialize DeepSeek client
+# IMPORTANT: Set DEEPSEEK_API_KEY in Vercel environment variables!
+deepseek_key = os.getenv("DEEPSEEK_API_KEY")
+if not deepseek_key:
+    print("WARNING: DEEPSEEK_API_KEY not found in environment variables!")
+    print("Please set it in Vercel Dashboard → Settings → Environment Variables")
+
 client = OpenAI(
-    api_key=os.getenv("DEEPSEEK_API_KEY", "sk-36fca51fd07e4382a5d6e627955613ed"),
+    api_key=deepseek_key,
     base_url="https://api.deepseek.com"
 )
 
@@ -70,6 +76,9 @@ def groupTranscript(transcript, interval):
 
 def sumTranscript(transcript):
     try:
+        if not deepseek_key:
+            return "Error: DEEPSEEK_API_KEY not configured. Please set it in Vercel environment variables."
+
         response = client.chat.completions.create(
             model="deepseek-chat",
             messages=[
@@ -81,7 +90,10 @@ def sumTranscript(transcript):
         )
         return response.choices[0].message.content
     except Exception as e:
-        return f"Error generating summary: {str(e)}"
+        error_msg = str(e)
+        if "authentication" in error_msg.lower() or "401" in error_msg:
+            return "Error: Invalid DeepSeek API key. Please check your DEEPSEEK_API_KEY in Vercel environment variables."
+        return f"Error generating summary: {error_msg}"
 
 def getVideoDetails(video_url):
     try:
