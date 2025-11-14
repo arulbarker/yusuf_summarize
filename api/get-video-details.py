@@ -105,7 +105,7 @@ def getVideoDetails(video_url):
         else:
             return {"error": "Invalid YouTube URL"}
 
-        # Configure yt-dlp options for subtitle extraction
+        # Configure yt-dlp options with anti-bot bypass
         ydl_opts = {
             'skip_download': True,
             'writesubtitles': True,
@@ -114,6 +114,20 @@ def getVideoDetails(video_url):
             'quiet': True,
             'no_warnings': True,
             'extract_flat': False,
+            # Anti-bot configuration
+            'extractor_args': {
+                'youtube': {
+                    'player_client': ['android', 'web'],
+                    'player_skip': ['webpage', 'configs'],
+                }
+            },
+            # Simulate real browser headers
+            'http_headers': {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                'Accept-Language': 'en-us,en;q=0.5',
+                'Sec-Fetch-Mode': 'navigate',
+            }
         }
 
         # Fetch video info and subtitles using yt-dlp
